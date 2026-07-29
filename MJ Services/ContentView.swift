@@ -444,7 +444,11 @@ struct ServiceChip: View {
     // A single glass configuration whose tint animates, rather than two
     // structurally different configurations swapped on selection.
     private var chipGlass: Glass {
-        .regular.tint(isSelected ? service.tint.opacity(0.45) : nil).interactive()
+        if isSelected {
+            return .regular.glassTint(service.tint.opacity(0.45)).interactive()
+        } else {
+            return .regular.interactive()
+        }
     }
 }
 
