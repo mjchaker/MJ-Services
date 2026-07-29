@@ -132,6 +132,7 @@ final class PortfolioModel {
 
 // MARK: - Applying a reorder difference (SDK 27 reorderable containers)
 
+@available(anyAppleOS 27.0, *)
 extension ReorderDifference where CollectionID == ReorderableSingleCollectionIdentifier {
     func apply<C>(to collection: inout C)
         where C: RangeReplaceableCollection,
@@ -289,7 +290,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
         }
-        .buttonStyle(.glassProminent)
+        .buttonStyle(.borderedProminent)
         .tint(.blue)
     }
 
@@ -315,7 +316,7 @@ struct ContentView: View {
                     Button("Try Again") {
                         Task { await portfolio.load() }
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.bordered)
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)

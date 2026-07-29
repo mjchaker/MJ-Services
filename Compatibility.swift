@@ -26,7 +26,7 @@ struct Glass {
     
     static let regular = Glass()
     
-    func tint(_ color: Color?) -> Glass {
+    func glassTint(_ color: Color?) -> Glass {
         var copy = self
         copy.tintColor = color
         return copy
@@ -56,6 +56,9 @@ extension View {
 
 extension ButtonStyle where Self == GlassButtonStyle {
     static var glass: GlassButtonStyle { GlassButtonStyle() }
+}
+
+extension ButtonStyle where Self == GlassProminentButtonStyle {
     static var glassProminent: GlassProminentButtonStyle { GlassProminentButtonStyle() }
 }
 
