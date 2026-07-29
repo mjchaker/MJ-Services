@@ -130,36 +130,6 @@ final class PortfolioModel {
     }
 }
 
-// MARK: - Applying a reorder difference (SDK 27 reorderable containers)
-
-@available(anyAppleOS 27.0, *)
-extension ReorderDifference where CollectionID == ReorderableSingleCollectionIdentifier {
-    func apply<C>(to collection: inout C)
-        where C: RangeReplaceableCollection,
-              C.Element: Identifiable,
-              C.Element.ID == ItemID
-    {
-        let moving = Set(sources)
-        guard !moving.isEmpty else { return }
-
-        var moved: [C.Element] = []
-        moved.reserveCapacity(moving.count)
-        collection.removeAll { element in
-            guard moving.contains(element.id) else { return false }
-            moved.append(element)
-            return true
-        }
-
-        switch destination.position {
-        case .before(let id):
-            let index = collection.firstIndex { $0.id == id } ?? collection.endIndex
-            collection.insert(contentsOf: moved, at: index)
-        case .end:
-            collection.append(contentsOf: moved)
-        }
-    }
-}
-
 // MARK: - Content view
 
 struct ContentView: View {
@@ -445,7 +415,7 @@ struct ServiceChip: View {
     // structurally different configurations swapped on selection.
     private var chipGlass: Glass {
         if isSelected {
-            return .regular.glassTint(service.tint.opacity(0.45)).interactive()
+            return .regular.tint(service.tint.opacity(0.45)).interactive()
         } else {
             return .regular.interactive()
         }

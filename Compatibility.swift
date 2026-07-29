@@ -2,7 +2,11 @@ import SwiftUI
 
 // MARK: - Glass Effect Compatibility
 
-#if !compiler(>=6.2) || !canImport(GlassKit)
+// Liquid Glass ships in SDK 26 (Swift 6.2), but every symbol is
+// `@available(visionOS, unavailable)` — so visionOS still needs these fallbacks.
+// The previous `!canImport(GlassKit)` test was always true (there is no such
+// framework), which shadowed the real API on iOS and macOS too.
+#if !compiler(>=6.2) || os(visionOS)
 
 /// Fallback GlassEffectContainer for older SDKs
 struct GlassEffectContainer<Content: View>: View {
@@ -26,15 +30,17 @@ struct Glass {
     
     static let regular = Glass()
     
-    func glassTint(_ color: Color?) -> Glass {
+    // Mirrors SwiftUI's Glass.tint(_:) / .interactive(_:) so call sites are
+    // identical whether this fallback or the real API is in scope.
+    func tint(_ color: Color?) -> Glass {
         var copy = self
         copy.tintColor = color
         return copy
     }
-    
-    func interactive() -> Glass {
+
+    func interactive(_ isEnabled: Bool = true) -> Glass {
         var copy = self
-        copy.isInteractive = true
+        copy.isInteractive = isEnabled
         return copy
     }
 }
@@ -99,7 +105,10 @@ struct GlassProminentButtonStyle: ButtonStyle {
 
 // MARK: - Reorderable Compatibility
 
-#if !compiler(>=6.2) || os(watchOS) || os(tvOS)
+// SwiftUI's reorderable containers ship in the SDK 27 / Swift 6.4 toolchain
+// (Xcode 27), not 6.2 — gating on 6.2 stripped these fallbacks on Xcode 26,
+// where SwiftUI has no ReorderDifference of its own.
+#if !compiler(>=6.4) || os(watchOS) || os(tvOS)
 
 /// Fallback identifier for reorderable containers
 struct ReorderableSingleCollectionIdentifier: Hashable {
@@ -123,6 +132,28 @@ struct ReorderDifference<ItemID: Hashable, CollectionID: Hashable> {
     let destination: ReorderDestination<ItemID>
 }
 
+extension View {
+    /// Fallback reorderable modifier using onDrag/onDrop for older SDKs
+    func reorderable() -> some View {
+        self
+    }
+    
+    /// Fallback reorderContainer modifier for older SDKs
+    func reorderContainer<Item: Identifiable>(
+        for itemType: Item.Type,
+        onReorder: @escaping (ReorderDifference<Item.ID, ReorderableSingleCollectionIdentifier>) -> Void
+    ) -> some View {
+        self
+    }
+}
+
+#endif
+
+// Applies to SwiftUI's ReorderDifference on SDK 27 and to the fallback above on
+// older SDKs, so ContentView calls the same `apply(to:)` either way.
+#if compiler(>=6.4)
+@available(anyAppleOS 27.0, *)
+#endif
 extension ReorderDifference where CollectionID == ReorderableSingleCollectionIdentifier {
     func apply<C>(to collection: inout C)
         where C: RangeReplaceableCollection,
@@ -150,26 +181,12 @@ extension ReorderDifference where CollectionID == ReorderableSingleCollectionIde
     }
 }
 
-extension View {
-    /// Fallback reorderable modifier using onDrag/onDrop for older SDKs
-    func reorderable() -> some View {
-        self
-    }
-    
-    /// Fallback reorderContainer modifier for older SDKs
-    func reorderContainer<Item: Identifiable>(
-        for itemType: Item.Type,
-        onReorder: @escaping (ReorderDifference<Item.ID, ReorderableSingleCollectionIdentifier>) -> Void
-    ) -> some View {
-        self
-    }
-}
-
-#endif
-
 // MARK: - MeshGradient Compatibility
 
-#if !os(iOS) || os(iOS) && compiler(<6.0)
+// MeshGradient is iOS 18 / macOS 15 / visionOS 2 and up — i.e. SDK 18 (Swift 6.0),
+// on every platform. The old `!os(iOS)` test shadowed the real type on macOS and
+// visionOS, silently downgrading the backdrop to a linear gradient there.
+#if !compiler(>=6.0)
 
 /// Fallback MeshGradient for older SDKs
 struct MeshGradient: ShapeStyle {
