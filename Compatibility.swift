@@ -76,17 +76,15 @@ struct GlassButtonStyle: ButtonStyle {
 }
 
 struct GlassProminentButtonStyle: ButtonStyle {
-    @Environment(\.tint) private var tint
-    
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .background(tint.opacity(0.15), in: .rect(cornerRadius: 14))
+            .background(Color.blue.opacity(0.15), in: .rect(cornerRadius: 14))
             .background(.ultraThinMaterial, in: .rect(cornerRadius: 14))
             .overlay {
                 RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(tint.opacity(0.3), lineWidth: 1)
+                    .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1)
             }
             .opacity(configuration.isPressed ? 0.7 : 1.0)
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
