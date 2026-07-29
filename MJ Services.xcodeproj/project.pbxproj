@@ -6,8 +6,13 @@
 	objectVersion = 90;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FDADE531301981FD003351A3 /* Compatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDADE530301981FD003351A3 /* Compatibility.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* MJ Services.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MJ Services.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FDADE530301981FD003351A3 /* Compatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Compatibility.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -31,6 +36,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* MJ Services */,
+				FDADE530301981FD003351A3 /* Compatibility.swift */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -110,6 +116,7 @@
 		000000000000000120000000 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
+				FDADE531301981FD003351A3 /* Compatibility.swift in Sources */,
 			);
 		};
 /* End PBXSourcesBuildPhase section */
