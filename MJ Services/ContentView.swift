@@ -340,7 +340,7 @@ struct ContentView: View {
 
     private var headlineText: String {
         if let headline = loadedPortfolio?.headline, !headline.isEmpty { return headline }
-        return "Software engineer with an ear for detail."
+        return "Computer programmer with an ear for detail."
     }
 
     // MARK: Actions
