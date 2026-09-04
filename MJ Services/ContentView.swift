@@ -10,145 +10,52 @@ import SwiftUI
     }
 }
 
-// MARK: - Service catalog
-
-struct Service: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let tagline: String
-    let symbol: String
-    let tint: Color
-}
-
-extension Service {
-    static let catalog: [Service] = [
-        Service(id: "apple", name: "Apple Platforms", tagline: "Swift, SwiftUI, HomeKit & Matter", symbol: "apple.logo", tint: .blue),
-        Service(id: "web", name: "Web Development", tagline: "Rails, React, Flask, WebGL", symbol: "globe", tint: .teal),
-        Service(id: "systems", name: "Systems & Low-Level", tagline: "C, C++, compilers, AArch64", symbol: "cpu", tint: .orange),
-        Service(id: "ai", name: "AI Agents & MCP", tagline: "MCP servers, LLM tool-calling", symbol: "brain.head.profile", tint: .purple),
-        Service(id: "python", name: "Python & Automation", tagline: "Scripting, Flask, REST APIs", symbol: "apple.terminal", tint: .green),
-        Service(id: "csharp", name: "C# / .NET", tagline: "Desktop & backend services", symbol: "chevron.left.forwardslash.chevron.right", tint: .indigo),
-        Service(id: "java", name: "Java & JVM", tagline: "Plugins, agents, tooling", symbol: "cup.and.saucer.fill", tint: .brown),
-        Service(id: "audio", name: "Audio & DSP", tagline: "Signal processing, production", symbol: "waveform", tint: .pink),
-    ]
-}
-
-/// A request the user is about to send, shown in the confirmation alert.
-struct ServiceRequest {
-    var services: [Service]
-    var notes: String
-}
-
-// MARK: - Portfolio data fetched from mjchaker.github.io
-
-struct PortfolioProject: Identifiable {
-    let id = UUID()
-    let icon: String
-    let category: String
-    let title: String
-    let summary: String
-    let tags: [String]
-}
-
-struct Portfolio {
-    var headline: String
-    var status: String
-    var skills: [String]
-    var projects: [PortfolioProject]
-}
-
-@Observable @MainActor
-final class PortfolioModel {
-    enum Phase {
-        case loading
-        case loaded(Portfolio)
-        case failed(String)
-    }
-
-    private(set) var phase: Phase = .loading
-
-    static let siteURL = URL(string: "https://mjchaker.github.io")!
-
-    func load() async {
-        phase = .loading
-        do {
-            let (data, _) = try await URLSession.shared.data(from: Self.siteURL)
-            let html = String(decoding: data, as: UTF8.self)
-            phase = .loaded(Self.parse(html))
-        } catch {
-            phase = .failed(error.localizedDescription)
-        }
-    }
-
-    // MARK: HTML parsing
-
-    // The site is a static page; project cards are
-    // <article class="card reveal"> blocks inside the #projects section.
-    static func parse(_ html: String) -> Portfolio {
-        let headline = plainText(firstCapture(in: html, matching: #/<h1>(.*?)</h1>/#.dotMatchesNewlines()))
-        let status = plainText(firstCapture(in: html, matching: #/<p class="eyebrow">(.*?)</p>/#.dotMatchesNewlines()))
-        let skills = listItems(in: firstCapture(in: html, matching: #/<ul class="chips" aria-label="Skills">(.*?)</ul>/#.dotMatchesNewlines()))
-
-        let projectsHTML = section(of: html, from: "id=\"projects\"", to: "id=\"music\"")
-        let cardRegex = #/<article class="card reveal">\s*<div class="card-top">\s*<span class="card-icon"[^>]*>(.*?)</span>\s*<span class="card-tag">(.*?)</span>.*?<h3>(.*?)</h3>\s*<p>(.*?)</p>\s*<ul class="chips chips-sm">(.*?)</ul>/#.dotMatchesNewlines()
-        let projects = projectsHTML.matches(of: cardRegex).map { match in
-            PortfolioProject(
-                icon: plainText(String(match.1)),
-                category: plainText(String(match.2)),
-                title: plainText(String(match.3)),
-                summary: plainText(String(match.4)),
-                tags: listItems(in: String(match.5))
-            )
-        }
-
-        return Portfolio(headline: headline, status: status, skills: skills, projects: projects)
-    }
-
-    private static func firstCapture(in html: String, matching regex: Regex<(Substring, Substring)>) -> String {
-        guard let match = html.firstMatch(of: regex) else { return "" }
-        return String(match.1)
-    }
-
-    private static func listItems(in fragment: String) -> [String] {
-        fragment.matches(of: #/<li>(.*?)</li>/#.dotMatchesNewlines()).map { plainText(String($0.1)) }
-    }
-
-    private static func section(of html: String, from startMarker: String, to endMarker: String) -> String {
-        guard let start = html.range(of: startMarker) else { return html }
-        let tail = html[start.upperBound...]
-        guard let end = tail.range(of: endMarker) else { return String(tail) }
-        return String(tail[..<end.lowerBound])
-    }
-
-    private static func plainText(_ fragment: String) -> String {
-        var text = fragment.replacing(#/<[^>]+>/#, with: " ")
-        let entities: [String: String] = ["&amp;": "&", "&quot;": "\"", "&#39;": "'", "&apos;": "'", "&lt;": "<", "&gt;": ">", "&nbsp;": " "]
-        for (entity, character) in entities {
-            text = text.replacing(entity, with: character)
-        }
-        return text.replacing(#/\s+/#, with: " ").trimmingCharacters(in: .whitespaces)
-    }
-}
-
 // MARK: - Content view
 
 struct ContentView: View {
     @State private var portfolio = PortfolioModel()
-    @State private var selectedServices: [Service] = []
-    @State private var notes: String = ""
-    @State private var pendingRequest: ServiceRequest?
-    @Environment(\.openURL) private var openURL
+    @State private var brief: RequestBrief
+    @State private var resumedDraft: Bool
+    @State private var detailOutcome: Outcome?
+    @State private var isReviewing = false
+    @State private var isConfirmingReset = false
+    @State private var workFilter: WorkFilter = .related
+
+    enum WorkFilter: String, CaseIterable, Identifiable {
+        case related, everything
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .related: "Related to your request"
+            case .everything: "Everything"
+            }
+        }
+    }
+
+    init() {
+        let draft = RequestBrief.loadDraft()
+        _brief = State(initialValue: draft)
+        _resumedDraft = State(initialValue: !draft.isBlank)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 hero
-                servicePicker
-                if !selectedServices.isEmpty {
-                    priorityList
-                    notesField
-                    submitButton
+                if resumedDraft {
+                    resumedBanner
                 }
+                outcomePicker
+                if brief.canSend {
+                    if brief.outcomes.count > 1 {
+                        priorityList
+                    }
+                    briefForm
+                    practicalities
+                    contactSection
+                    sendSection
+                }
+                processSection
                 portfolioSection
             }
             .padding(20)
@@ -159,11 +66,30 @@ struct ContentView: View {
         .task {
             await portfolio.load()
         }
-        .alert("Send this request to MJ?", item: $pendingRequest) { request in
-            Button("Email MJ") { openMail(for: request) }
-            Button("Cancel", role: .cancel) {}
-        } message: { request in
-            Text("You're requesting \(request.services.map(\.name).formatted(.list(type: .and))). This opens a pre-filled email to mjchaker19@gmail.com.")
+        .onChange(of: brief) { _, newValue in
+            newValue.saveDraft()
+        }
+        .sheet(item: $detailOutcome) { outcome in
+            OutcomeDetailView(
+                outcome: outcome,
+                relatedProjects: portfolio.loaded?.projects(relatedTo: [outcome]) ?? [],
+                isSelected: brief.outcomes.contains(outcome)
+            ) {
+                toggle(outcome)
+            }
+        }
+        .sheet(isPresented: $isReviewing) {
+            RequestReviewSheet(brief: brief)
+        }
+        .confirmationDialog("Start over?", isPresented: $isConfirmingReset, titleVisibility: .visible) {
+            Button("Clear everything", role: .destructive) {
+                withAnimation(.smooth) {
+                    brief = RequestBrief()
+                    resumedDraft = false
+                }
+            }
+        } message: {
+            Text("This clears what you've picked and written. Nothing has been sent to MJ yet.")
         }
     }
 
@@ -184,7 +110,7 @@ struct ContentView: View {
             Text(headlineText)
                 .font(.title3)
                 .foregroundStyle(.secondary)
-            Text("Pick the programming services you need, rank them by priority, and send your request.")
+            Text("Tell MJ what you want to make happen. No technical knowledge needed — describe it the way you'd explain it to a friend.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -193,21 +119,37 @@ struct ContentView: View {
         .background(.regularMaterial, in: .rect(cornerRadius: 28))
     }
 
-    private var servicePicker: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("What do you need built?")
-                .font(.title2.bold())
-            Text("Choose as many as you like.")
+    private var resumedBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.uturn.backward.circle")
+                .foregroundStyle(.blue)
+            Text("Picked up where you left off.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Start over") { isConfirmingReset = true }
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(14)
+        .background(.thinMaterial, in: .rect(cornerRadius: 16))
+    }
+
+    private var outcomePicker: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(
+                title: "What do you want to make happen?",
+                subtitle: "Pick as many as apply. Tap ⓘ for examples, costs to expect, and related work."
+            )
             // Container spacing must stay below the grid spacing; a larger value
             // makes the chip glass shapes blend at rest and re-update every frame.
             GlassEffectContainer(spacing: 8) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 12)], spacing: 12) {
-                    ForEach(Service.catalog) { service in
-                        ServiceChip(service: service, isSelected: selectedServices.contains(service)) {
-                            toggle(service)
-                        }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                    ForEach(Outcome.catalog) { outcome in
+                        OutcomeChip(
+                            outcome: outcome,
+                            isSelected: brief.outcomes.contains(outcome),
+                            toggle: { toggle(outcome) },
+                            showDetails: { detailOutcome = outcome }
+                        )
                     }
                 }
             }
@@ -216,58 +158,137 @@ struct ContentView: View {
 
     private var priorityList: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Rank your priorities")
-                .font(.title2.bold())
-            Text("Drag to reorder — the top item is what MJ tackles first.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            SectionHeader(
+                title: "What matters most?",
+                subtitle: "Drag to reorder — the top item is what MJ tackles first."
+            )
             VStack(spacing: 10) {
-                ForEach(selectedServices) { service in
+                ForEach(brief.outcomes) { outcome in
                     PriorityRow(
-                        rank: (selectedServices.firstIndex(of: service) ?? 0) + 1,
-                        service: service
+                        rank: (brief.outcomes.firstIndex(of: outcome) ?? 0) + 1,
+                        outcome: outcome
                     ) {
-                        toggle(service)
+                        toggle(outcome)
                     }
                 }
                 .reorderable()
             }
-            .reorderContainer(for: Service.self) { difference in
+            .reorderContainer(for: Outcome.self) { difference in
                 withAnimation(.smooth) {
-                    difference.apply(to: &selectedServices)
+                    difference.apply(to: &brief.outcomes)
                 }
             }
         }
     }
 
-    private var notesField: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Project details")
-                .font(.title2.bold())
-            TextField("Anything MJ should know about the project?", text: $notes, axis: .vertical)
-                .lineLimit(3...6)
-                .padding(14)
-                .background(.thinMaterial, in: .rect(cornerRadius: 16))
+    private var briefForm: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionHeader(
+                title: "Tell MJ about it",
+                subtitle: "A few sentences in your own words. Skip anything you're not sure about."
+            )
+            BriefField(
+                question: "What are you trying to accomplish?",
+                hint: "e.g. Customers keep phoning to book, and I want them to do it themselves online.",
+                text: $brief.goal
+            )
+            BriefField(
+                question: "Who is it for?",
+                hint: "e.g. Our 12 field technicians, or the public, or just me.",
+                text: $brief.audience
+            )
+            BriefField(
+                question: "Is there anything already in place?",
+                hint: "e.g. An old website, a spreadsheet we live in, an app another developer started.",
+                text: $brief.existing
+            )
         }
     }
 
-    private var submitButton: some View {
-        Button {
-            pendingRequest = ServiceRequest(services: selectedServices, notes: notes)
-        } label: {
-            Label("Request these services", systemImage: "paperplane.fill")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+    private var practicalities: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(
+                title: "Budget and timing",
+                subtitle: "Rough answers are fine — they help MJ suggest the right size of solution."
+            )
+            ChoiceRow(title: "Budget", symbol: "banknote", selection: $brief.budget) { $0.label }
+            ChoiceRow(title: "Timeline", symbol: "calendar", selection: $brief.timeline) { $0.label }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(.blue)
+    }
+
+    private var contactSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(title: "How should MJ reply?")
+            TextField("Your name", text: $brief.name)
+                .textFieldStyle(.plain)
+                .padding(14)
+                .background(.thinMaterial, in: .rect(cornerRadius: 16))
+            ChoiceRow(title: "Preferred contact", symbol: brief.contact.symbol, selection: $brief.contact) { $0.label }
+            if brief.contact != .email {
+                TextField("Phone number", text: $brief.phone)
+                    .textFieldStyle(.plain)
+                    .phoneKeyboard()
+                    .padding(14)
+                    .background(.thinMaterial, in: .rect(cornerRadius: 16))
+            }
+        }
+    }
+
+    private var sendSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                isReviewing = true
+            } label: {
+                Label("Review and send", systemImage: "paperplane.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+            HStack {
+                Text("You'll see exactly what MJ receives before anything is sent. Your draft is saved automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Start over", role: .destructive) { isConfirmingReset = true }
+                    .font(.caption.weight(.semibold))
+            }
+        }
+    }
+
+    private var processSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeader(title: "What happens next")
+            ProcessStep(
+                number: 1,
+                title: "Your request lands in MJ's inbox",
+                detail: "It goes out as an ordinary email from your own address, so you can attach files or forward it to a colleague."
+            )
+            ProcessStep(
+                number: 2,
+                title: "MJ replies to talk it through",
+                detail: "A short conversation to ask the questions that matter and make sure the goal is clear."
+            )
+            ProcessStep(
+                number: 3,
+                title: "You get a plan in plain language",
+                detail: "What will be built, roughly how long it takes and what it costs — before any work starts."
+            )
+            ProcessStep(
+                number: 4,
+                title: "You own what gets built",
+                detail: "Progress updates along the way, and the finished code, accounts and designs are yours."
+            )
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: .rect(cornerRadius: 24))
     }
 
     private var portfolioSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Live from mjchaker.github.io")
-                .font(.title2.bold())
+            SectionHeader(title: "MJ's recent work", subtitle: "Live from mjchaker.github.io")
             switch portfolio.phase {
             case .loading:
                 HStack {
@@ -292,12 +313,23 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.regularMaterial, in: .rect(cornerRadius: 20))
             case .loaded(let loaded):
-                if !loaded.skills.isEmpty {
-                    Text(loaded.skills.joined(separator: "  ·  "))
-                        .font(.caption.weight(.medium))
+                let related = loaded.projects(relatedTo: brief.outcomes)
+                if !related.isEmpty && related.count < loaded.projects.count {
+                    Picker("Show", selection: $workFilter) {
+                        ForEach(WorkFilter.allCases) { filter in
+                            Text(filter.label).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                let shown = (workFilter == .related && !related.isEmpty) ? related : loaded.projects
+                if shown.isEmpty {
+                    Text("No projects are listed on the site right now.")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                ForEach(loaded.projects) { project in
+                ForEach(shown) { project in
                     ProjectCard(project: project)
                 }
             }
@@ -328,18 +360,13 @@ struct ContentView: View {
 
     // MARK: Derived text
 
-    private var loadedPortfolio: Portfolio? {
-        if case .loaded(let loaded) = portfolio.phase { return loaded }
-        return nil
-    }
-
     private var statusText: String {
-        if let status = loadedPortfolio?.status, !status.isEmpty { return status }
+        if let status = portfolio.loaded?.status, !status.isEmpty { return status }
         return "Open to new opportunities"
     }
 
     private var headlineText: String {
-        if let headline = loadedPortfolio?.headline, !headline.isEmpty { return headline }
+        if let headline = portfolio.loaded?.headline, !headline.isEmpty { return headline }
         return "Computer programmer with an ear for detail."
     }
 
@@ -348,144 +375,12 @@ struct ContentView: View {
     // Deliberately not animated: animating the glass tint in the same frame as
     // the interactive-glass press reaction re-enters the glass update cycle
     // ("glassEffect() tried to update multiple times per frame").
-    private func toggle(_ service: Service) {
-        if let index = selectedServices.firstIndex(of: service) {
-            selectedServices.remove(at: index)
+    private func toggle(_ outcome: Outcome) {
+        if let index = brief.outcomes.firstIndex(of: outcome) {
+            brief.outcomes.remove(at: index)
         } else {
-            selectedServices.append(service)
+            brief.outcomes.append(outcome)
         }
-    }
-
-    private func openMail(for request: ServiceRequest) {
-        var components = URLComponents()
-        components.scheme = "mailto"
-        components.path = "mjchaker19@gmail.com"
-        let serviceList = request.services.enumerated()
-            .map { "\($0.offset + 1). \($0.element.name)" }
-            .joined(separator: "\n")
-        var body = "Hi MJ,\n\nI'd like to hire you for the following services, in priority order:\n\n\(serviceList)\n"
-        if !request.notes.isEmpty {
-            body += "\nProject details:\n\(request.notes)\n"
-        }
-        components.queryItems = [
-            URLQueryItem(name: "subject", value: "Programming services request"),
-            URLQueryItem(name: "body", value: body),
-        ]
-        if let url = components.url {
-            openURL(url)
-        }
-    }
-}
-
-// MARK: - Components
-
-struct ServiceChip: View {
-    let service: Service
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: service.symbol)
-                    .font(.title3)
-                    .frame(width: 28)
-                    .foregroundStyle(service.tint)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(service.name)
-                        .font(.subheadline.weight(.semibold))
-                    Text(service.tagline)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? service.tint : .secondary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(chipGlass, in: .rect(cornerRadius: 20))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    // A single glass configuration whose tint animates, rather than two
-    // structurally different configurations swapped on selection.
-    private var chipGlass: Glass {
-        if isSelected {
-            return .regular.tint(service.tint.opacity(0.45)).interactive()
-        } else {
-            return .regular.interactive()
-        }
-    }
-}
-
-struct PriorityRow: View {
-    let rank: Int
-    let service: Service
-    let remove: () -> Void
-
-    init(rank: Int, service: Service, remove: @escaping () -> Void) {
-        self.rank = rank
-        self.service = service
-        self.remove = remove
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text("\(rank)")
-                .font(.headline.monospacedDigit())
-                .frame(width: 28, height: 28)
-                .background(service.tint.opacity(0.25), in: .circle)
-            Image(systemName: service.symbol)
-                .foregroundStyle(service.tint)
-            Text(service.name)
-                .font(.subheadline.weight(.semibold))
-            Spacer()
-            Button(action: remove) {
-                Image(systemName: "minus.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(service.name)")
-            Image(systemName: "line.3.horizontal")
-                .foregroundStyle(.tertiary)
-        }
-        .padding(14)
-        .background(.thinMaterial, in: .rect(cornerRadius: 16))
-    }
-}
-
-struct ProjectCard: View {
-    let project: PortfolioProject
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(project.icon)
-                    .font(.title2)
-                Spacer()
-                Text(project.category)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(.quaternary, in: .capsule)
-            }
-            Text(project.title)
-                .font(.headline)
-            Text(project.summary)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(4)
-            Text(project.tags.joined(separator: " · "))
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: .rect(cornerRadius: 20))
     }
 }
 
